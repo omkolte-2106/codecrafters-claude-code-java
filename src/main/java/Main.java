@@ -31,17 +31,17 @@ public class Main {
                 ChatCompletionCreateParams.builder()
                         .model("anthropic/claude-haiku-4.5")
                         .addUserMessage(prompt)
-                        .build()
-        );
+                        .build());
 
         if (response.choices().isEmpty()) {
             throw new RuntimeException("no choices in response");
         }
 
-        // You can use print statements as follows for debugging, they'll be visible when running tests.
+        // You can use print statements as follows for debugging, they'll be visible
+        // when running tests.
         System.err.println("Logs from your program will appear here!");
 
         // TODO: Uncomment the line below to pass the first stage
-        // System.out.print(response.choices().get(0).message().content().orElse(""));
+        System.out.print(response.choices().get(0).message().content().orElse(""));
     }
 }
