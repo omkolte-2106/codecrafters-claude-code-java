@@ -1,6 +1,10 @@
+import java.util.List;
+import java.util.Map;
+
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.FunctionDefinition;
+import com.openai.models.FunctionParameters;
 import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionTool;
@@ -27,6 +31,25 @@ public class Main {
         OpenAIClient client = OpenAIOkHttpClient.builder()
                 .apiKey(apiKey)
                 .baseUrl(baseUrl)
+                .build();
+
+        FunctionParameters readFileParams = FunctionParameters.builder()
+                .putAdditionalProperty("type", JsonValue.from("object"))
+                .putAdditionalProperty("properties", JsonValue.from(Map.of(
+                        "path", Map.of(
+                                "type", "string",
+                                "description", "The relative or absolute path to the file to read"))))
+                .putAdditionalProperty("required", JsonValue.from(List.of("path")))
+                .build();
+
+        FunctionDefinition readFileFunction = FunctionDefinition.builder()
+                .name("read_file")
+                .description("Read the contents of a file at the given path.")
+                .parameters(readFileParams)
+                .build();
+
+        ChatCompletionTool readFileTool = ChatCompletionTool.builder()
+                .function(readFileFunction)
                 .build();
 
         ChatCompletion response = client.chat().completions().create(
