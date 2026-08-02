@@ -11,7 +11,6 @@ import com.openai.core.JsonValue;
 import com.openai.models.FunctionDefinition;
 import com.openai.models.FunctionParameters;
 import com.openai.models.chat.completions.ChatCompletion;
-import com.openai.models.chat.completions.ChatCompletionChoice;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessage;
 import com.openai.models.chat.completions.ChatCompletionMessageToolCall;
@@ -75,7 +74,7 @@ public class Main {
                 throw new RuntimeException("no choices in response");
             }
 
-            ChatCompletionChoice choice = response.choices().get(0);
+            ChatCompletion.Choice choice = response.choices().get(0);
             ChatCompletionMessage message = choice.message();
 
             // Record the assistant response in conversation history
