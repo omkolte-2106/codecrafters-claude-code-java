@@ -44,10 +44,10 @@ public class Main {
         FunctionParameters readFileParams = FunctionParameters.builder()
                 .putAdditionalProperty("type", JsonValue.from("object"))
                 .putAdditionalProperty("properties", JsonValue.from(Map.of(
-                        "path", Map.of(
+                        "file_path", Map.of(
                                 "type", "string",
-                                "description", "The relative or absolute path to the file to read"))))
-                .putAdditionalProperty("required", JsonValue.from(List.of("path")))
+                                "description", "The path of the file to read"))))
+                .putAdditionalProperty("required", JsonValue.from(List.of("file_path")))
                 .build();
 
         FunctionDefinition readFileFunction = FunctionDefinition.builder()
@@ -60,10 +60,33 @@ public class Main {
                 .function(readFileFunction)
                 .build();
 
+        FunctionParameters writeFileParams = FunctionParameters.builder()
+                .putAdditionalProperty("type", JsonValue.from("object"))
+                .putAdditionalProperty("properties", JsonValue.from(Map.of(
+                        "file_path", Map.of(
+                                "type", "string",
+                                "description", "The path of the file to write to"),
+                        "content", Map.of(
+                                "type", "string",
+                                "description", "The content to write to the file"))))
+                .putAdditionalProperty("required", JsonValue.from(List.of("file_path", "content")))
+                .build();
+
+        FunctionDefinition writeFileFunction = FunctionDefinition.builder()
+                .name("write_file")
+                .description("Write content to a file")
+                .parameters(writeFileParams)
+                .build();
+
+        ChatCompletionTool writeFileTool = ChatCompletionTool.builder()
+                .function(writeFileFunction)
+                .build();
+
         ChatCompletionCreateParams.Builder builder = ChatCompletionCreateParams.builder()
                 .model("anthropic/claude-haiku-4.5")
                 .addUserMessage(prompt)
-                .addTool(readFileTool);
+                .addTool(readFileTool)
+                .addTool(writeFileTool);
 
         ObjectMapper mapper = new ObjectMapper();
 
@@ -88,29 +111,45 @@ public class Main {
 
             // Execute each requested tool call
             for (ChatCompletionMessageToolCall toolCall : message.toolCalls().get()) {
-                String fileContent;
+                String toolName = toolCall.function().name();
+                String toolResult;
                 try {
                     JsonNode argsNode = mapper.readTree(toolCall.function().arguments());
-                    String filePath;
-                    if (argsNode.has("path")) {
-                        filePath = argsNode.get("path").asText();
-                    } else if (argsNode.has("file_path")) {
-                        filePath = argsNode.get("file_path").asText();
-                    } else {
-                        filePath = argsNode.asText();
-                    }
+                    String filePath = getFilePath(argsNode);
 
-                    fileContent = Files.readString(Path.of(filePath));
+                    if ("read_file".equalsIgnoreCase(toolName) || "read".equalsIgnoreCase(toolName)) {
+                        toolResult = Files.readString(Path.of(filePath));
+                    } else if ("write_file".equalsIgnoreCase(toolName) || "write".equalsIgnoreCase(toolName)) {
+                        String fileContent = argsNode.has("content") ? argsNode.get("content").asText() : "";
+                        Path path = Path.of(filePath);
+                        if (path.getParent() != null) {
+                            Files.createDirectories(path.getParent());
+                        }
+                        Files.writeString(path, fileContent);
+                        toolResult = "File written successfully";
+                    } else {
+                        toolResult = "Unknown tool: " + toolName;
+                    }
                 } catch (Exception e) {
-                    fileContent = "Error reading file: " + e.getMessage();
+                    toolResult = "Error executing tool " + toolName + ": " + e.getMessage();
                 }
 
                 // Append tool result message to conversation history
                 builder.addMessage(ChatCompletionToolMessageParam.builder()
                         .toolCallId(toolCall.id())
-                        .content(fileContent)
+                        .content(toolResult)
                         .build());
             }
+        }
+    }
+
+    private static String getFilePath(JsonNode argsNode) {
+        if (argsNode.has("file_path")) {
+            return argsNode.get("file_path").asText();
+        } else if (argsNode.has("path")) {
+            return argsNode.get("path").asText();
+        } else {
+            return argsNode.asText();
         }
     }
 }
