@@ -1,6 +1,10 @@
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.JsonValue;
@@ -8,6 +12,8 @@ import com.openai.models.FunctionDefinition;
 import com.openai.models.FunctionParameters;
 import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
+import com.openai.models.chat.completions.ChatCompletionMessage;
+import com.openai.models.chat.completions.ChatCompletionMessageToolCall;
 import com.openai.models.chat.completions.ChatCompletionTool;
 
 public class Main {
@@ -58,18 +64,35 @@ public class Main {
                         .model("anthropic/claude-haiku-4.5")
                         .addUserMessage(prompt)
                         .addTool(readFileTool)
-
                         .build());
 
         if (response.choices().isEmpty()) {
             throw new RuntimeException("no choices in response");
         }
 
-        // You can use print statements as follows for debugging, they'll be visible
-        // when running tests.
-        System.err.println("Logs from your program will appear here!");
+        ChatCompletionMessage message = response.choices().get(0).message();
 
-        // TODO: Uncomment the line below to pass the first stage
-        System.out.print(response.choices().get(0).message().content().orElse(""));
+        // Handle tool calls from the LLM response
+        if (message.toolCalls().isPresent() && !message.toolCalls().get().isEmpty()) {
+            ObjectMapper mapper = new ObjectMapper();
+            for (ChatCompletionMessageToolCall toolCall : message.toolCalls().get()) {
+                if ("read_file".equals(toolCall.function().name())) {
+                    try {
+                        // Extract the "path" argument from the JSON arguments
+                        JsonNode argsNode = mapper.readTree(toolCall.function().arguments());
+                        String filePath = argsNode.get("path").asText();
+
+                        // Read the file contents and write to standard output
+                        String fileContent = Files.readString(Path.of(filePath));
+                        System.out.print(fileContent);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        } else {
+            // If no tool call was returned, print the assistant text message
+            System.out.print(message.content().orElse(""));
+        }
     }
 }
