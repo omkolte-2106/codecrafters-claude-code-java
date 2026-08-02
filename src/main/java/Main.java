@@ -11,10 +11,12 @@ import com.openai.core.JsonValue;
 import com.openai.models.FunctionDefinition;
 import com.openai.models.FunctionParameters;
 import com.openai.models.chat.completions.ChatCompletion;
+import com.openai.models.chat.completions.ChatCompletionChoice;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessage;
 import com.openai.models.chat.completions.ChatCompletionMessageToolCall;
 import com.openai.models.chat.completions.ChatCompletionTool;
+import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
 
 public class Main {
     public static void main(String[] args) {
@@ -59,40 +61,57 @@ public class Main {
                 .function(readFileFunction)
                 .build();
 
-        ChatCompletion response = client.chat().completions().create(
-                ChatCompletionCreateParams.builder()
-                        .model("anthropic/claude-haiku-4.5")
-                        .addUserMessage(prompt)
-                        .addTool(readFileTool)
-                        .build());
+        ChatCompletionCreateParams.Builder builder = ChatCompletionCreateParams.builder()
+                .model("anthropic/claude-haiku-4.5")
+                .addUserMessage(prompt)
+                .addTool(readFileTool);
 
-        if (response.choices().isEmpty()) {
-            throw new RuntimeException("no choices in response");
-        }
+        ObjectMapper mapper = new ObjectMapper();
 
-        ChatCompletionMessage message = response.choices().get(0).message();
+        while (true) {
+            ChatCompletion response = client.chat().completions().create(builder.build());
 
-        // Handle tool calls from the LLM response
-        if (message.toolCalls().isPresent() && !message.toolCalls().get().isEmpty()) {
-            ObjectMapper mapper = new ObjectMapper();
-            for (ChatCompletionMessageToolCall toolCall : message.toolCalls().get()) {
-                if ("read_file".equals(toolCall.function().name())) {
-                    try {
-                        // Extract the "path" argument from the JSON arguments
-                        JsonNode argsNode = mapper.readTree(toolCall.function().arguments());
-                        String filePath = argsNode.get("path").asText();
-
-                        // Read the file contents and write to standard output
-                        String fileContent = Files.readString(Path.of(filePath));
-                        System.out.print(fileContent);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }
+            if (response.choices().isEmpty()) {
+                throw new RuntimeException("no choices in response");
             }
-        } else {
-            // If no tool call was returned, print the assistant text message
-            System.out.print(message.content().orElse(""));
+
+            ChatCompletionChoice choice = response.choices().get(0);
+            ChatCompletionMessage message = choice.message();
+
+            // Record the assistant response in conversation history
+            builder.addMessage(message);
+
+            // Exit loop if no tool calls requested
+            if (message.toolCalls().isEmpty() || message.toolCalls().get().isEmpty()) {
+                System.out.print(message.content().orElse(""));
+                break;
+            }
+
+            // Execute each requested tool call
+            for (ChatCompletionMessageToolCall toolCall : message.toolCalls().get()) {
+                String fileContent;
+                try {
+                    JsonNode argsNode = mapper.readTree(toolCall.function().arguments());
+                    String filePath;
+                    if (argsNode.has("path")) {
+                        filePath = argsNode.get("path").asText();
+                    } else if (argsNode.has("file_path")) {
+                        filePath = argsNode.get("file_path").asText();
+                    } else {
+                        filePath = argsNode.asText();
+                    }
+
+                    fileContent = Files.readString(Path.of(filePath));
+                } catch (Exception e) {
+                    fileContent = "Error reading file: " + e.getMessage();
+                }
+
+                // Append tool result message to conversation history
+                builder.addMessage(ChatCompletionToolMessageParam.builder()
+                        .toolCallId(toolCall.id())
+                        .content(fileContent)
+                        .build());
+            }
         }
     }
 }
