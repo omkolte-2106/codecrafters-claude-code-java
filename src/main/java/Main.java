@@ -1,3 +1,4 @@
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -82,11 +83,31 @@ public class Main {
                 .function(writeFileFunction)
                 .build();
 
+        FunctionParameters bashParams = FunctionParameters.builder()
+                .putAdditionalProperty("type", JsonValue.from("object"))
+                .putAdditionalProperty("properties", JsonValue.from(Map.of(
+                        "command", Map.of(
+                                "type", "string",
+                                "description", "The command to execute"))))
+                .putAdditionalProperty("required", JsonValue.from(List.of("command")))
+                .build();
+
+        FunctionDefinition bashFunction = FunctionDefinition.builder()
+                .name("bash")
+                .description("Execute a shell command")
+                .parameters(bashParams)
+                .build();
+
+        ChatCompletionTool bashTool = ChatCompletionTool.builder()
+                .function(bashFunction)
+                .build();
+
         ChatCompletionCreateParams.Builder builder = ChatCompletionCreateParams.builder()
                 .model("anthropic/claude-haiku-4.5")
                 .addUserMessage(prompt)
                 .addTool(readFileTool)
-                .addTool(writeFileTool);
+                .addTool(writeFileTool)
+                .addTool(bashTool);
 
         ObjectMapper mapper = new ObjectMapper();
 
@@ -115,11 +136,12 @@ public class Main {
                 String toolResult;
                 try {
                     JsonNode argsNode = mapper.readTree(toolCall.function().arguments());
-                    String filePath = getFilePath(argsNode);
 
                     if ("read_file".equalsIgnoreCase(toolName) || "read".equalsIgnoreCase(toolName)) {
+                        String filePath = getFilePath(argsNode);
                         toolResult = Files.readString(Path.of(filePath));
                     } else if ("write_file".equalsIgnoreCase(toolName) || "write".equalsIgnoreCase(toolName)) {
+                        String filePath = getFilePath(argsNode);
                         String fileContent = argsNode.has("content") ? argsNode.get("content").asText() : "";
                         Path path = Path.of(filePath);
                         if (path.getParent() != null) {
@@ -127,6 +149,18 @@ public class Main {
                         }
                         Files.writeString(path, fileContent);
                         toolResult = "File written successfully";
+                    } else if ("bash".equalsIgnoreCase(toolName) || "run_bash_command".equalsIgnoreCase(toolName)) {
+                        String command = argsNode.has("command") ? argsNode.get("command").asText() : "";
+                        ProcessBuilder pb;
+                        if (System.getProperty("os.name").toLowerCase().contains("win")) {
+                            pb = new ProcessBuilder("cmd.exe", "/c", command);
+                        } else {
+                            pb = new ProcessBuilder("sh", "-c", command);
+                        }
+                        pb.redirectErrorStream(true);
+                        Process process = pb.start();
+                        toolResult = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                        process.waitFor();
                     } else {
                         toolResult = "Unknown tool: " + toolName;
                     }
